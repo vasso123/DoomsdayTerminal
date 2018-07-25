@@ -45,7 +45,8 @@ public class MainController {
     private final Listener copySentDataButtonListener = showErrorInDialog(this::handleCopySentDataButtonClick);
 
     private final Observer connectionObserver = this::handleConnectionData;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService taskExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService abortTaskExecutor = Executors.newSingleThreadExecutor();
 
     private ConnectionHandler connectionHandler;
     private final ConnectionSettingsController connectionSettingsController;
@@ -85,7 +86,7 @@ public class MainController {
 
     private void handleConnectButtonClick(Button b) {
         if (connectionHandler != null && connectionHandler.isConnected()) {
-            executor.submit(
+            taskExecutor.submit(
                     new BaseBackgroundTask(
                             mainView.getWindow().getTextGUI(),
                             () -> {
@@ -101,17 +102,29 @@ public class MainController {
             );
             connectionHandler.addObserver(connectionObserver);
 
-            executor.submit(
+            taskExecutor.submit(
                     new BaseBackgroundTask(
                             mainView.getWindow().getTextGUI(),
                             connectionHandler::connect,
-                            () -> mainView.getConnectButton().setLabel("Disconnect")
+                            () -> mainView.getConnectButton().setLabel("Disconnect"),
+                            () -> {
+                                abortTaskExecutor.submit(() -> {
+                                            try {
+                                                connectionHandler.disconnect();
+                                            } catch (IOException ex) {
+                                            }
+                                        });
+                            }
                     )
             );
         }
     }
 
     private void handleCloseAppButtonClick(Button b) {
+        shutdownApplication();
+    }
+
+    public void shutdownApplication() {
         mainView.getWindow().close();
         System.exit(0);
     }
@@ -137,7 +150,7 @@ public class MainController {
         SendDataPanel sendDataPanel = getPanelByButton(b, SendDataPanel::getSendBTN);
         final String dataToSend = sendDataPanel.getDataToSend();
         if (StringUtils.isNotEmpty(dataToSend)) {
-            executor.submit(
+            taskExecutor.submit(
                     new BaseBackgroundTask(
                             mainView.getWindow().getTextGUI(),
                             () -> {
@@ -182,7 +195,7 @@ public class MainController {
     }
 
     private void handleClearReceivedDataButtonClick(Button b) {
-        executor.submit(
+        taskExecutor.submit(
                 new BaseBackgroundTask(
                         mainView.getWindow().getTextGUI(),
                         () -> connectionHandler.clearReadData(),
@@ -192,7 +205,7 @@ public class MainController {
     }
 
     private void handleClearSentDataButtonClick(Button b) {
-        executor.submit(
+        taskExecutor.submit(
                 new BaseBackgroundTask(
                         mainView.getWindow().getTextGUI(),
                         () -> connectionHandler.clearSentData(),
@@ -231,7 +244,10 @@ public class MainController {
         if (dataPanel.getShowDataAsHexCB().isChecked()) {
             data = decorateHexString(ByteUtils.bytesToHex(data.getBytes()));
         }
-        dataPanel.getDataTB().setText(data);
+        // workaround for a lanterna bug, when setting only the nl character to textbox
+        if (!"\n".equals(data)) {
+            dataPanel.getDataTB().setText(data);
+        }
     }
 
     private String decorateHexString(String hexString) {

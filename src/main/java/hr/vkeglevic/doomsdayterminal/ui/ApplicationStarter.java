@@ -48,13 +48,12 @@ public class ApplicationStarter {
     public void showMainView() throws IOException {
         initGui();
         MainView tcpClientView = new MainView(window, terminal.getTerminalSize());
-        MainController tcpClientController = new MainController(tcpClientView);
-        tcpClientController.init();
+        MainController mainController = new MainController(tcpClientView);
+        mainController.init();
         setDefaultUncaughtExceptionHandler();
-        textGUI.addWindow(window);
-        textGUI.getGUIThread().processEventsAndUpdate();
         textGUI.addWindowAndWait(window);
         screen.stopScreen();
+        mainController.shutdownApplication();
     }
 
     private void setDefaultUncaughtExceptionHandler() {

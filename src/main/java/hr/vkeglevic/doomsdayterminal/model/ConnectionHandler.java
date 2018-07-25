@@ -17,6 +17,7 @@ public class ConnectionHandler extends Observable {
     private final Connection connection;
     private final ExecutorService readExecutorService;
     private volatile boolean connected;
+    private volatile boolean disconnectStarted;
     private final ByteArrayOutputStream readDataStream = new ByteArrayOutputStream();
     private final ByteArrayOutputStream sentDataStream = new ByteArrayOutputStream();
 
@@ -32,6 +33,7 @@ public class ConnectionHandler extends Observable {
     public void disconnect() throws IOException {
         if (connection != null) {
             connected = false;
+            disconnectStarted = true;
             connection.close();
         }
     }
@@ -42,7 +44,9 @@ public class ConnectionHandler extends Observable {
             connected = true;
             readExecutorService.submit(() -> readLoop());
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            if (!disconnectStarted) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
