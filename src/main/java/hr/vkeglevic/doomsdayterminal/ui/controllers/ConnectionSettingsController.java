@@ -6,6 +6,7 @@ import hr.vkeglevic.doomsdayterminal.model.Connection;
 import com.googlecode.lanterna.gui2.Borders;
 import com.googlecode.lanterna.gui2.Component;
 import com.googlecode.lanterna.gui2.Panel;
+import hr.vkeglevic.doomsdayterminal.infrastructure.SerialConnection;
 import hr.vkeglevic.doomsdayterminal.ui.views.SerialSettingsPanel;
 import hr.vkeglevic.doomsdayterminal.ui.views.TabbedPanel;
 import hr.vkeglevic.doomsdayterminal.ui.views.TcpClientSettingsPanel;
@@ -52,7 +53,7 @@ public class ConnectionSettingsController {
         } else if (currentlySelectedTab instanceof TcpServerSettingsPanel) {
             return getTcpServerConnection(currentlySelectedTab);
         } else if (currentlySelectedTab instanceof SerialSettingsPanel) {
-            throw new NotImplementedException("");
+            return getSerialConnection(currentlySelectedTab);
         } else {
             throw new NotImplementedException("Unknown connection type requested!");
         }
@@ -77,6 +78,20 @@ public class ConnectionSettingsController {
         );
     }
 
+    private Connection getSerialConnection(Panel currentlySelectedTab) {
+        SerialSettingsPanel panel = (SerialSettingsPanel) currentlySelectedTab;
+        String port = panel.getPortTB().getText();
+        checkValidSerialPort(port);
+        return new SerialConnection(
+                panel.getPortTB().getText(), 
+                panel.getBaudCB().getSelectedItem(), 
+                panel.getDataBitsCB().getSelectedItem(), 
+                panel.getStopBitsCB().getSelectedItem().getValue(), 
+                panel.getParityCB().getSelectedItem().getValue(),
+                panel.getFlowControlCB().getSelectedItem().getValue()
+        );
+    }
+
     private void checkValidTcpPort(String port) throws RuntimeException {
         if (!StringUtils.isNumeric(port)) {
             throw new RuntimeException("Please enter a valid TCP port number!");
@@ -86,6 +101,12 @@ public class ConnectionSettingsController {
     private void checkValidIpAddress(String ip) throws RuntimeException {
         if (StringUtils.isBlank(ip)) {
             throw new RuntimeException("Please enter IP address or hostname!");
+        }
+    }
+
+    private void checkValidSerialPort(String port) {
+        if(StringUtils.isBlank(port)) {
+            throw new RuntimeException("Please enter serial port name!");
         }
     }
 
