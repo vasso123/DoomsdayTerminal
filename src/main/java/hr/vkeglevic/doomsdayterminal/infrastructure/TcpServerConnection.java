@@ -55,4 +55,9 @@ public class TcpServerConnection implements Connection {
         return outputStream;
     }
 
+    @Override
+    public String toString() {
+        return "TcpServerConnection{" + "port=" + port + ", serverSocket=" + serverSocket + ", socket=" + socket + '}';
+    }
+
 }

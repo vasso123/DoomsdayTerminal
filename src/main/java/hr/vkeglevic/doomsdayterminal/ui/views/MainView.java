@@ -20,6 +20,9 @@ import com.googlecode.lanterna.gui2.Panels;
  */
 public class MainView {
 
+    private static final String CONNECT = "Connect";
+    private static final String DISCONNECT = "Disonnect";
+
     private Panel mainPanel;
     private DataPanel receivedDataPanel;
     private DataPanel sentDataPanel;
@@ -52,7 +55,7 @@ public class MainView {
 
         initSentDataPanel(halfPanelHeight, halfPanelWidth);
 
-        connectButton = new Button("Connect");
+        connectButton = new Button(CONNECT);
         closeAppButton = new Button("Close app");
 
         Panel buttonPanel = Panels.horizontal(
@@ -148,6 +151,14 @@ public class MainView {
 
     public Button getConnectButton() {
         return connectButton;
+    }
+
+    public void setConnectButtonLabel() {
+        connectButton.setLabel(CONNECT);
+    }
+
+    public void setDisconnectButtonLabel() {
+        connectButton.setLabel(DISCONNECT);
     }
 
     public String getReceivedData() {

@@ -7,6 +7,8 @@ import java.io.InputStream;
 import java.util.Observable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  *
@@ -20,10 +22,12 @@ public class ConnectionHandler extends Observable {
     private volatile boolean disconnectStarted;
     private final ByteArrayOutputStream readDataStream = new ByteArrayOutputStream();
     private final ByteArrayOutputStream sentDataStream = new ByteArrayOutputStream();
+    private final int readByteLimit;
 
     public ConnectionHandler(Connection connection) {
         this.connection = connection;
         readExecutorService = Executors.newSingleThreadExecutor();
+        readByteLimit = 10000;
     }
 
     public boolean isConnected() {
@@ -35,6 +39,7 @@ public class ConnectionHandler extends Observable {
             connected = false;
             disconnectStarted = true;
             connection.close();
+            readExecutorService.shutdownNow();
         }
     }
 
@@ -60,21 +65,58 @@ public class ConnectionHandler extends Observable {
     private void readLoop() {
         try {
             InputStream is = connection.getInputStream();
+            final int readBufferSize = 100;
+            final byte[] readBuffer = new byte[readBufferSize];
+            int readBytesCount = 0;
+            int readIntoBuffer = 0;
             while (connected) {
-                final int read = is.read();
-                if (read == -1) {
-                    throw new RuntimeException("Disconnected");
+                /**
+                 * We'll use the blocking api so we don't have to use
+                 * Thread.sleep. Chances are that after one byte, there will be
+                 * more, so after the first one we'll read in chunks
+                 */
+                readDataStream.write(waitForFirstByte(is));
+                readBytesCount++;
+                while (is.available() > 0 && readBytesCount < readByteLimit) {
+                    readIntoBuffer = is.read(readBuffer);
+                    readDataStream.write(readBuffer, 0, readIntoBuffer);
+                    readBytesCount += readIntoBuffer;
                 }
-                readDataStream.write(read);
-                while (is.available() > 0) {
-                    readDataStream.write(is.read());
-                }
-                setChanged();
-                notifyObservers(Event.readDataEvent(readDataStream.toByteArray()));
+                final byte[] currentData = readDataStream.toByteArray();
+                checkReadLimit(currentData);
+                sendReadEvent(currentData);
             }
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             setChanged();
             notifyObservers(Event.exceptionEvent(ex));
+        }
+    }
+
+    private int waitForFirstByte(InputStream is) throws IOException {
+        final int read = is.read();
+        if (read == -1) {
+            throw new RuntimeException("Disconnected");
+        }
+        return read;
+    }
+
+    private void checkReadLimit(final byte[] currentData) throws RuntimeException {
+        if (currentData.length > readByteLimit) {
+            disconnectSilently();
+            throw new RuntimeException("Received data too large, please use the log to file option!");
+        }
+    }
+
+    private void sendReadEvent(final byte[] currentData) {
+        setChanged();
+        notifyObservers(Event.readDataEvent(currentData));
+    }
+
+    private void disconnectSilently() {
+        try {
+            disconnect();
+        } catch (IOException ex) {
+            Logger.getLogger(ConnectionHandler.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
@@ -92,6 +134,11 @@ public class ConnectionHandler extends Observable {
 
     public byte[] getReceivedData() {
         return readDataStream.toByteArray();
+    }
+
+    @Override
+    public String toString() {
+        return "ConnectionHandler{" + "connection=" + connection + ", connected=" + connected + ", disconnectStarted=" + disconnectStarted + '}';
     }
 
 }

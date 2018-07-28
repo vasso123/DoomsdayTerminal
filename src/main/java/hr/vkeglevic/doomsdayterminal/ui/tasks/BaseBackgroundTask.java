@@ -7,6 +7,8 @@ import hr.vkeglevic.doomsdayterminal.ui.dialogs.ProgressDialog;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.apache.commons.lang3.mutable.MutableObject;
 
 /**
@@ -14,6 +16,8 @@ import org.apache.commons.lang3.mutable.MutableObject;
  * @author vanja
  */
 public class BaseBackgroundTask implements Runnable {
+    
+    private static final Logger LOG = Logger.getLogger(BaseBackgroundTask.class.getName());
 
     private final WindowBasedTextGUI textGUI;
     private final Job job;
@@ -73,6 +77,7 @@ public class BaseBackgroundTask implements Runnable {
                 invokeOnGuiThread(onDone);
             }
         } catch (Exception e) {
+            LOG.log(Level.SEVERE, "", e);
             invokeOnGuiThread(() -> {
                 dismiss(progressDialogHolder);
                 MessageDialog.showMessageDialog(

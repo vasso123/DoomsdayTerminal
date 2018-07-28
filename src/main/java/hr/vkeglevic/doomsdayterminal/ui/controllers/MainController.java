@@ -17,11 +17,14 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.IntStream;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -32,6 +35,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
  * @author vanja
  */
 public class MainController {
+
+    private static final Logger LOG = Logger.getLogger(MainController.class.getName());
 
     private final MainView mainView;
 
@@ -57,6 +62,7 @@ public class MainController {
     }
 
     public void init() {
+        LOG.info("Init...");
         connectionSettingsController.init();
         mainView.init(connectionSettingsController.getView());
         mainView.getConnectButton().takeFocus();
@@ -85,7 +91,9 @@ public class MainController {
     }
 
     private void handleConnectButtonClick(Button b) {
+        LOG.info("connection handler: " + Objects.toString(connectionHandler));
         if (connectionHandler != null && connectionHandler.isConnected()) {
+            LOG.info("Disconnecting...");
             taskExecutor.submit(
                     new BaseBackgroundTask(
                             mainView.getWindow().getTextGUI(),
@@ -93,10 +101,11 @@ public class MainController {
                                 connectionHandler.deleteObserver(connectionObserver);
                                 connectionHandler.disconnect();
                             },
-                            () -> mainView.getConnectButton().setLabel("Connect")
+                            () -> mainView.setConnectButtonLabel()
                     )
             );
         } else {
+            LOG.info("Connecting...");
             connectionHandler = new ConnectionHandler(
                     connectionSettingsController.getConnection()
             );
@@ -106,14 +115,14 @@ public class MainController {
                     new BaseBackgroundTask(
                             mainView.getWindow().getTextGUI(),
                             connectionHandler::connect,
-                            () -> mainView.getConnectButton().setLabel("Disconnect"),
+                            () -> mainView.setDisconnectButtonLabel(),
                             () -> {
                                 abortTaskExecutor.submit(() -> {
-                                            try {
-                                                connectionHandler.disconnect();
-                                            } catch (IOException ex) {
-                                            }
-                                        });
+                                    try {
+                                        connectionHandler.disconnect();
+                                    } catch (IOException ex) {
+                                    }
+                                });
                             }
                     )
             );
@@ -125,8 +134,15 @@ public class MainController {
     }
 
     public void shutdownApplication() {
+        if(connectionHandler != null && connectionHandler.isConnected()) {
+            taskExecutor.submit(() -> {
+                connectionHandler.disconnect();
+                return null;
+            });
+        }
+        taskExecutor.shutdown();
+        abortTaskExecutor.shutdown();
         mainView.getWindow().close();
-        System.exit(0);
     }
 
     private void handleConnectionData(Observable o, Object arg) {
@@ -138,6 +154,9 @@ public class MainController {
                         "Error",
                         e.getException().getMessage()
                 );
+                if (connectionHandler != null && !connectionHandler.isConnected()) {
+                    mainView.setConnectButtonLabel();
+                }
             } else if (e.getReadData() != null) {
                 showDataOnPanel(mainView.getReceivedDataPanel(), new String(e.getReadData()));
             } else if (e.getSentData() != null) {
@@ -215,11 +234,15 @@ public class MainController {
     }
 
     private void handleCopyReceivedDataButtonClick(Button b) {
-        copyToClipboard(new String(connectionHandler.getReceivedData()));
+        if (connectionHandler != null) {
+            copyToClipboard(new String(connectionHandler.getReceivedData()));
+        }
     }
 
     private void handleCopySentDataButtonClick(Button b) {
-        copyToClipboard(new String(connectionHandler.getSentData()));
+        if (connectionHandler != null) {
+            copyToClipboard(new String(connectionHandler.getSentData()));
+        }
     }
 
     private SendDataPanel getPanelByButton(Button b, Function<SendDataPanel, Button> getButtonFunction) {
@@ -262,15 +285,21 @@ public class MainController {
     private Listener showErrorInDialog(Listener listener) {
         return (button) -> {
             try {
+                LOG.log(Level.FINE, "User clicked button: {0}", button);
                 listener.onTriggered(button);
             } catch (Exception e) {
-                MessageDialog.showMessageDialog(
-                        mainView.getWindow().getTextGUI(),
-                        "Unhandled exception",
-                        StringUtils.substring(ExceptionUtils.getStackTrace(e), 0, 500)
-                );
+                handleUnhandledException(e);
             }
         };
+    }
+
+    public void handleUnhandledException(Throwable e) {
+        LOG.log(Level.SEVERE, "Unhandled exception", e);
+        MessageDialog.showMessageDialog(
+                mainView.getWindow().getTextGUI(),
+                "Unhandled exception",
+                StringUtils.substring(ExceptionUtils.getStackTrace(e), 0, 500)
+        );
     }
 
 }

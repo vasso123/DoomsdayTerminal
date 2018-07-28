@@ -78,4 +78,9 @@ public class SerialConnection implements Connection {
         return outputStream;
     }
 
+    @Override
+    public String toString() {
+        return "SerialConnection{" + "portName=" + portName + ", baudRate=" + baudRate + ", dataBits=" + dataBits + ", stopBits=" + stopBits + ", parity=" + parity + ", port=" + port + ", flowControl=" + flowControl + '}';
+    }
+
 }

@@ -53,4 +53,9 @@ public class TcpClientConnection implements Connection {
         return outputStream;
     }
 
+    @Override
+    public String toString() {
+        return "TcpClientConnection{" + "ipAddress=" + ipAddress + ", port=" + port + ", socket=" + socket + '}';
+    }
+
 }
