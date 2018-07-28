@@ -1,5 +1,5 @@
 # DoomsdayTerminal
- Graphical CLI app for testing TCP and serial(yet to be implemented) communication. Still in early stages, but works with some quirks.
+ Graphical CLI app for testing TCP and serial communication. Still in early stages, but works with some quirks.
  App uses the awesome [**Lanterna**](https://github.com/mabe02/lanterna) library as the GUI toolkit.
 
 ![Doomsday Terminal screenshot](screenshot.png)
