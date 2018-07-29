@@ -13,5 +13,5 @@
 ## Features yet to be implemented
 * log received and sent data to a chosen file,
 * send the contents of a chosen file,
-* join two connections so they talk through the app, as the exchanged data is displayed/logged to a file
+* join two connections so they exchange data through the app,
 * use the Java 9 modularization to build a minimal, zero dependency native app for all platforms.
