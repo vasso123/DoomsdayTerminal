@@ -12,7 +12,6 @@ import com.googlecode.lanterna.gui2.Component;
 import com.googlecode.lanterna.gui2.Direction;
 import com.googlecode.lanterna.gui2.LinearLayout;
 import com.googlecode.lanterna.gui2.Panel;
-import com.googlecode.lanterna.gui2.Panels;
 
 /**
  *
@@ -21,12 +20,13 @@ import com.googlecode.lanterna.gui2.Panels;
 public class MainView {
 
     private static final String CONNECT = "Connect";
-    private static final String DISCONNECT = "Disonnect";
+    private static final String DISCONNECT = "Disconnect";
 
     private Panel mainPanel;
     private DataPanel receivedDataPanel;
     private DataPanel sentDataPanel;
     private Button connectButton;
+    private Button sendFileButton;
     private Button closeAppButton;
     private SendDataPanel sendDataPanel1;
     private SendDataPanel sendDataPanel2;
@@ -56,13 +56,15 @@ public class MainView {
         initSentDataPanel(halfPanelHeight, halfPanelWidth);
 
         connectButton = new Button(CONNECT);
+        sendFileButton = new Button("Send file");
         closeAppButton = new Button("Close app");
 
-        Panel buttonPanel = Panels.horizontal(
-                connectButton.withBorder(Borders.singleLineBevel()),
-                closeAppButton.withBorder(Borders.singleLineBevel())
-        );
-        buttonPanel.setSize(buttonPanel.getPreferredSize());
+        Component buttonPanel = new Panel(new LinearLayout(Direction.HORIZONTAL).setSpacing(0))
+                .addComponent(connectButton.withBorder(Borders.singleLineBevel()))
+                .addComponent(sendFileButton.withBorder(Borders.singleLineBevel()))
+                .addComponent(closeAppButton.withBorder(Borders.singleLineBevel()));
+
+        buttonPanel.setSize(new TerminalSize(halfPanelWidth, buttonPanel.getPreferredSize().getRows()));
         setPositionRightOf(buttonPanel, receivedDataPanelBorder);
         mainPanel.addComponent(buttonPanel);
 
@@ -81,7 +83,7 @@ public class MainView {
         mainPanel.addComponent(sendDataPanels);
     }
 
-    private void initConnectionSettingsPanel(Component connectionSettingsPanel, Panel buttonPanel) {
+    private void initConnectionSettingsPanel(Component connectionSettingsPanel, Component buttonPanel) {
         connectionSettingsPanel.setSize(connectionSettingsPanel.getPreferredSize());
         setPositionBelowOf(connectionSettingsPanel, buttonPanel);
         mainPanel.addComponent(connectionSettingsPanel);
@@ -126,6 +128,11 @@ public class MainView {
     public void setConnectButtonListener(Listener l) {
         connectButton.removeListener(l);
         connectButton.addListener(l);
+    }
+
+    public void setSendFileButtonListener(Listener l) {
+        sendFileButton.removeListener(l);
+        sendFileButton.addListener(l);
     }
 
     public void removeConnectButtonListener(Listener l) {

@@ -1,7 +1,13 @@
 package hr.vkeglevic.doomsdayterminal.model;
 
-import hr.vkeglevic.doomsdayterminal.model.events.Event;
+import hr.vkeglevic.doomsdayterminal.model.events.SendingFileEvent;
+import hr.vkeglevic.doomsdayterminal.model.events.ReadDataEvent;
+import hr.vkeglevic.doomsdayterminal.model.events.ReadDataExceptionEvent;
+import hr.vkeglevic.doomsdayterminal.model.events.SentDataEvent;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Observable;
@@ -15,6 +21,9 @@ import java.util.logging.Logger;
  * @author vanja
  */
 public class ConnectionHandler extends Observable {
+
+    private static final int SEND_EVENT_INTERVAL_MS = 200;
+    private static final Logger LOG = Logger.getLogger(ConnectionHandler.class.getName());
 
     private final Connection connection;
     private final ExecutorService readExecutorService;
@@ -58,8 +67,72 @@ public class ConnectionHandler extends Observable {
     public void send(byte[] data) throws IOException {
         connection.getOutputStream().write(data);
         sentDataStream.write(data);
-        setChanged();
-        notifyObservers(Event.sentDataEvent(sentDataStream.toByteArray()));
+        sendEvent(new SentDataEvent(sentDataStream.toByteArray()));
+    }
+
+    public void send(File file) throws IOException, FileNotFoundException, InterruptedException {
+        sendFileToConnection(file);
+        sentDataStream.write(("\nFile sent: " + file.getAbsolutePath() + "\n").getBytes());
+        sendEvent(new SentDataEvent(sentDataStream.toByteArray()));
+    }
+
+    private void sendFileToConnection(File file) throws IOException, FileNotFoundException, InterruptedException {
+        final long fileSize = file.length();
+        final long startTime = System.currentTimeMillis();
+        FileInputStream input = new FileInputStream(file);
+        byte[] buffer = new byte[1024];
+        long totalBytesSentCount = 0;
+        sendSendingFileEvent(startTime, fileSize, totalBytesSentCount);
+        long timeFromLastUpdate = System.currentTimeMillis();
+        int bytesRead;
+        while ((bytesRead = input.read(buffer)) != -1 && connected) {
+            connection.getOutputStream().write(buffer, 0, bytesRead);
+            totalBytesSentCount += bytesRead;
+            if (isTimeForGuiUpdate(timeFromLastUpdate)) {
+                sendSendingFileEvent(startTime, fileSize, totalBytesSentCount);
+                timeFromLastUpdate = System.currentTimeMillis();
+            }
+            checkInterrupted();
+        }
+    }
+
+    private boolean isTimeForGuiUpdate(long timeFromLastUpdate) {
+        return System.currentTimeMillis() - timeFromLastUpdate > SEND_EVENT_INTERVAL_MS;
+    }
+
+    private void checkInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            LOG.info("Sending file interrupted, aborting...");
+            throw new InterruptedException("Sending file aborted");
+        }
+    }
+
+    public String humanReadableByteCount(long bytes, boolean si) {
+        int unit = si ? 1000 : 1024;
+        if (bytes < unit) {
+            return bytes + " B";
+        }
+        int exp = (int) (Math.log(bytes) / Math.log(unit));
+        String pre = (si ? "kMGTPE" : "KMGTPE").charAt(exp - 1) + (si ? "" : "i");
+        return String.format("%.1f %sB", bytes / Math.pow(unit, exp), pre);
+    }
+
+    private void sendSendingFileEvent(
+            final long startTime,
+            final long fileSize,
+            final long totalBytesSentCount
+    ) {
+        final long currentSendTime = System.currentTimeMillis() - startTime;
+        final long bytesPerSecondSpeed
+                = currentSendTime == 0
+                        ? 0
+                        : (totalBytesSentCount / currentSendTime * 1000);
+        final String progressMsg = humanReadableByteCount(totalBytesSentCount, true)
+                + " / "
+                + humanReadableByteCount(fileSize, true)
+                + " - "
+                + humanReadableByteCount(bytesPerSecondSpeed, true) + "/s";
+        sendEvent(new SendingFileEvent(fileSize, totalBytesSentCount, progressMsg));
     }
 
     private void readLoop() {
@@ -69,6 +142,7 @@ public class ConnectionHandler extends Observable {
             final byte[] readBuffer = new byte[readBufferSize];
             int readBytesCount = 0;
             int readIntoBuffer = 0;
+            long timeFromLastUpdate = System.currentTimeMillis();
             while (connected) {
                 /**
                  * We'll use the blocking api so we don't have to use
@@ -84,11 +158,14 @@ public class ConnectionHandler extends Observable {
                 }
                 final byte[] currentData = readDataStream.toByteArray();
                 checkReadLimit(currentData);
-                sendReadEvent(currentData);
+                // we don't want to send the read event too often, it could block the GUI
+                if (isTimeForGuiUpdate(timeFromLastUpdate)) {
+                    sendReadEvent(currentData);
+                    timeFromLastUpdate = System.currentTimeMillis();
+                }
             }
         } catch (Exception ex) {
-            setChanged();
-            notifyObservers(Event.exceptionEvent(ex));
+            sendEvent(new ReadDataExceptionEvent(ex));
         }
     }
 
@@ -107,9 +184,13 @@ public class ConnectionHandler extends Observable {
         }
     }
 
-    private void sendReadEvent(final byte[] currentData) {
+    private void sendEvent(Object event) {
         setChanged();
-        notifyObservers(Event.readDataEvent(currentData));
+        notifyObservers(event);
+    }
+
+    private void sendReadEvent(final byte[] currentData) {
+        sendEvent(new ReadDataEvent(currentData));
     }
 
     private void disconnectSilently() {

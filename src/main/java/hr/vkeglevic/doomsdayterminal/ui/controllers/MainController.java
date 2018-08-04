@@ -4,18 +4,25 @@ import hr.vkeglevic.doomsdayterminal.util.ByteUtils;
 import com.googlecode.lanterna.gui2.Button;
 import static com.googlecode.lanterna.gui2.Button.Listener;
 import com.googlecode.lanterna.gui2.TextBox;
+import com.googlecode.lanterna.gui2.Window.Hint;
+import com.googlecode.lanterna.gui2.dialogs.FileDialog;
+import com.googlecode.lanterna.gui2.dialogs.FileDialogBuilder;
 import com.googlecode.lanterna.gui2.dialogs.MessageDialog;
 import hr.vkeglevic.doomsdayterminal.model.ConnectionHandler;
-import hr.vkeglevic.doomsdayterminal.ui.tasks.BaseBackgroundTask;
+import hr.vkeglevic.doomsdayterminal.model.events.ReadDataEvent;
+import hr.vkeglevic.doomsdayterminal.model.events.ReadDataExceptionEvent;
+import hr.vkeglevic.doomsdayterminal.model.events.SentDataEvent;
 import hr.vkeglevic.doomsdayterminal.ui.views.DataPanel;
-import hr.vkeglevic.doomsdayterminal.model.events.Event;
+import hr.vkeglevic.doomsdayterminal.ui.tasks.BaseBackgroundTaskBuilder;
 import hr.vkeglevic.doomsdayterminal.ui.views.MainView;
 import hr.vkeglevic.doomsdayterminal.ui.views.SendDataPanel;
 import hr.vkeglevic.doomsdayterminal.util.ClipboardUtils;
 import java.awt.HeadlessException;
 import java.awt.datatransfer.UnsupportedFlavorException;
+import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Observable;
@@ -41,6 +48,7 @@ public class MainController {
     private final MainView mainView;
 
     private final Listener connectButtonListener = showErrorInDialog(this::handleConnectButtonClick);
+    private final Listener sendFileButtonListener = showErrorInDialog(this::handleSendFileButtonClick);
     private final Listener closeAppButtonListener = showErrorInDialog(this::handleCloseAppButtonClick);
     private final Listener sendButtonListener = showErrorInDialog(this::handleSendButtonClick);
     private final Listener pasteButtonListener = showErrorInDialog(this::handlePasteButtonClick);
@@ -71,6 +79,7 @@ public class MainController {
 
     private void initListeners() {
         mainView.setConnectButtonListener(connectButtonListener);
+        mainView.setSendFileButtonListener(sendFileButtonListener);
         mainView.setCloseAppButtonListener(closeAppButtonListener);
         getSendDataPanels().forEach((sdp) -> {
             sdp.setSendButtonListener(sendButtonListener);
@@ -95,14 +104,14 @@ public class MainController {
         if (connectionHandler != null && connectionHandler.isConnected()) {
             LOG.info("Disconnecting...");
             taskExecutor.submit(
-                    new BaseBackgroundTask(
-                            mainView.getWindow().getTextGUI(),
-                            () -> {
+                    new BaseBackgroundTaskBuilder()
+                            .setTextGUI(mainView.getWindow().getTextGUI())
+                            .setJob(() -> {
                                 connectionHandler.deleteObserver(connectionObserver);
                                 connectionHandler.disconnect();
-                            },
-                            () -> mainView.setConnectButtonLabel()
-                    )
+                            })
+                            .setOnDone(() -> mainView.setConnectButtonLabel())
+                            .createBaseBackgroundTask()
             );
         } else {
             LOG.info("Connecting...");
@@ -112,19 +121,19 @@ public class MainController {
             connectionHandler.addObserver(connectionObserver);
 
             taskExecutor.submit(
-                    new BaseBackgroundTask(
-                            mainView.getWindow().getTextGUI(),
-                            connectionHandler::connect,
-                            () -> mainView.setDisconnectButtonLabel(),
-                            () -> {
+                    new BaseBackgroundTaskBuilder()
+                            .setTextGUI(mainView.getWindow().getTextGUI())
+                            .setJob(connectionHandler::connect)
+                            .setOnDone(() -> mainView.setDisconnectButtonLabel())
+                            .setOnCancel(() -> {
                                 abortTaskExecutor.submit(() -> {
                                     try {
                                         connectionHandler.disconnect();
                                     } catch (IOException ex) {
                                     }
                                 });
-                            }
-                    )
+                            })
+                            .createBaseBackgroundTask()
             );
         }
     }
@@ -133,8 +142,27 @@ public class MainController {
         shutdownApplication();
     }
 
+    private void handleSendFileButtonClick(Button b) {
+        if (connectionHandler != null && connectionHandler.isConnected()) {
+            FileDialogBuilder fileDialogBuilder = new FileDialogBuilder()
+                    .setActionLabel("Choose file to send")
+                    .setExtraWindowHints(new HashSet<>(Arrays.asList(Hint.CENTERED)));
+            fileDialogBuilder.setShowHiddenDirectories(true);
+            FileDialog fileDialog = fileDialogBuilder.build();
+            File chosenFile = fileDialog.showDialog(mainView.getWindow().getTextGUI());
+            if (chosenFile != null) {
+                taskExecutor.submit(new BaseBackgroundTaskBuilder()
+                        .setTextGUI(mainView.getWindow().getTextGUI())
+                        .setJob(() -> connectionHandler.send(chosenFile))
+                        .setObservableProgress(connectionHandler)
+                        .setInterruptBackgroundWorkOnCancel(true)
+                        .createBaseBackgroundTask());
+            }
+        }
+    }
+
     public void shutdownApplication() {
-        if(connectionHandler != null && connectionHandler.isConnected()) {
+        if (connectionHandler != null && connectionHandler.isConnected()) {
             taskExecutor.submit(() -> {
                 connectionHandler.disconnect();
                 return null;
@@ -147,20 +175,22 @@ public class MainController {
 
     private void handleConnectionData(Observable o, Object arg) {
         mainView.getWindow().getTextGUI().getGUIThread().invokeLater(() -> {
-            Event e = (Event) arg;
-            if (e.getException() != null) {
+            if (arg instanceof ReadDataExceptionEvent) {
+                ReadDataExceptionEvent event = (ReadDataExceptionEvent) arg;
                 MessageDialog.showMessageDialog(
                         mainView.getWindow().getTextGUI(),
                         "Error",
-                        e.getException().getMessage()
+                        event.getException().getMessage()
                 );
                 if (connectionHandler != null && !connectionHandler.isConnected()) {
                     mainView.setConnectButtonLabel();
                 }
-            } else if (e.getReadData() != null) {
-                showDataOnPanel(mainView.getReceivedDataPanel(), new String(e.getReadData()));
-            } else if (e.getSentData() != null) {
-                showDataOnPanel(mainView.getSentDataPanel(), new String(e.getSentData()));
+            } else if (arg instanceof ReadDataEvent) {
+                ReadDataEvent event = (ReadDataEvent) arg;
+                showDataOnPanel(mainView.getReceivedDataPanel(), new String(event.getData()));
+            } else if (arg instanceof SentDataEvent) {
+                SentDataEvent event = (SentDataEvent) arg;
+                showDataOnPanel(mainView.getSentDataPanel(), new String(event.getData()));
             }
         });
     }
@@ -170,16 +200,16 @@ public class MainController {
         final String dataToSend = sendDataPanel.getDataToSend();
         if (StringUtils.isNotEmpty(dataToSend)) {
             taskExecutor.submit(
-                    new BaseBackgroundTask(
-                            mainView.getWindow().getTextGUI(),
-                            () -> {
+                    new BaseBackgroundTaskBuilder()
+                            .setTextGUI(mainView.getWindow().getTextGUI())
+                            .setJob(() -> {
                                 if (sendDataPanel.getSendHexCB().isChecked()) {
                                     connectionHandler.send(ByteUtils.hexStringToByteArray(dataToSend));
                                 } else {
                                     connectionHandler.send(dataToSend.getBytes());
                                 }
-                            }
-                    )
+                            })
+                            .createBaseBackgroundTask()
             );
         }
     }
@@ -215,21 +245,21 @@ public class MainController {
 
     private void handleClearReceivedDataButtonClick(Button b) {
         taskExecutor.submit(
-                new BaseBackgroundTask(
-                        mainView.getWindow().getTextGUI(),
-                        () -> connectionHandler.clearReadData(),
-                        () -> mainView.getReceivedDataPanel().getDataTB().setText("")
-                )
+                new BaseBackgroundTaskBuilder()
+                        .setTextGUI(mainView.getWindow().getTextGUI())
+                        .setJob(() -> connectionHandler.clearReadData())
+                        .setOnDone(() -> mainView.getReceivedDataPanel().getDataTB().setText(""))
+                        .createBaseBackgroundTask()
         );
     }
 
     private void handleClearSentDataButtonClick(Button b) {
         taskExecutor.submit(
-                new BaseBackgroundTask(
-                        mainView.getWindow().getTextGUI(),
-                        () -> connectionHandler.clearSentData(),
-                        () -> mainView.getSentDataPanel().getDataTB().setText("")
-                )
+                new BaseBackgroundTaskBuilder()
+                        .setTextGUI(mainView.getWindow().getTextGUI())
+                        .setJob(() -> connectionHandler.clearSentData())
+                        .setOnDone(() -> mainView.getSentDataPanel().getDataTB().setText(""))
+                        .createBaseBackgroundTask()
         );
     }
 

@@ -5,25 +5,27 @@ import com.googlecode.lanterna.gui2.WindowBasedTextGUI;
 import com.googlecode.lanterna.gui2.dialogs.MessageDialog;
 import hr.vkeglevic.doomsdayterminal.ui.dialogs.ProgressDialog;
 import java.util.Collections;
-import java.util.Optional;
+import java.util.Observable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 /**
  *
  * @author vanja
  */
 public class BaseBackgroundTask implements Runnable {
-    
+
     private static final Logger LOG = Logger.getLogger(BaseBackgroundTask.class.getName());
 
     private final WindowBasedTextGUI textGUI;
     private final Job job;
     private final Runnable onDone;
-    private final Runnable onCancel;
     private final AtomicBoolean taskCancelled = new AtomicBoolean();
+    private final ProgressDialog progressDialog;
+    private final boolean interruptBackgroundWorkOnCancel;
 
     public static interface Job {
 
@@ -34,63 +36,61 @@ public class BaseBackgroundTask implements Runnable {
             WindowBasedTextGUI textGUI,
             Job job,
             Runnable onDone,
-            Runnable onCancel
+            Runnable onCancel,
+            Observable observableProgress,
+            boolean interruptBackgroundWorkOnCancel
     ) {
         this.textGUI = textGUI;
         this.job = job;
         this.onDone = onDone;
-        this.onCancel = onCancel;
+        this.interruptBackgroundWorkOnCancel = interruptBackgroundWorkOnCancel;
+        progressDialog = initProgressDialog(onCancel, observableProgress);
     }
 
-    public BaseBackgroundTask(
-            WindowBasedTextGUI textGUI,
-            Job job,
-            Runnable onDone
-    ) {
-        this(textGUI, job, onDone, null);
-    }
-
-    public BaseBackgroundTask(WindowBasedTextGUI textGUI, Job job) {
-        this(textGUI, job, null, null);
+    private ProgressDialog initProgressDialog(Runnable onCancel, Observable observableProgress) {
+        final boolean determinateProgres = observableProgress != null;
+        ProgressDialog dialog = ProgressDialog.createDialog(
+                "Progress",
+                "Please wait...",
+                determinateProgres,
+                onCancel == null ? null : (abortButton) -> {
+                            taskCancelled.set(true);
+                            onCancel.run();
+                        }
+        );
+        dialog.setHints(Collections.singletonList(Window.Hint.CENTERED));
+        if (observableProgress != null) {
+            observableProgress.addObserver(dialog);
+        }
+        return dialog;
     }
 
     @Override
     public void run() {
-        MutableObject<ProgressDialog> progressDialogHolder = new MutableObject();
         try {
-            invokeOnGuiThread(() -> {
-                ProgressDialog dialog = ProgressDialog.createDialog(
-                        "Progress",
-                        "Please wait...",
-                        onCancel == null ? null : (button) -> {
-                                    taskCancelled.set(true);
-                                    onCancel.run();
-                                }
-                );
-                dialog.setHints(Collections.singletonList(Window.Hint.CENTERED));
-                dialog.showDialog(textGUI, false);
-                progressDialogHolder.setValue(dialog);
-            });
+            if (interruptBackgroundWorkOnCancel) {
+                final Thread backgrundThread = Thread.currentThread();
+                progressDialog.addAbortListener((b) -> {
+                    backgrundThread.interrupt();
+                });
+            }
+            invokeOnGuiThread(() -> progressDialog.showDialog(textGUI, false));
             job.job();
-            invokeOnGuiThread(() -> dismiss(progressDialogHolder));
+            invokeOnGuiThread(() -> progressDialog.close());
             if (onDone != null && !taskCancelled.get()) {
                 invokeOnGuiThread(onDone);
             }
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "", e);
             invokeOnGuiThread(() -> {
-                dismiss(progressDialogHolder);
+                progressDialog.close();
                 MessageDialog.showMessageDialog(
                         textGUI,
                         "Error",
-                        e.getMessage()
+                        StringUtils.substring(ExceptionUtils.getStackTrace(e), 0, 500)
                 );
             });
         }
-    }
-
-    private void dismiss(MutableObject<ProgressDialog> dialogHolder) {
-        Optional.ofNullable(dialogHolder.getValue()).ifPresent(ProgressDialog::close);
     }
 
     private void invokeOnGuiThread(Runnable r) {
