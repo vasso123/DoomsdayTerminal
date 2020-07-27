@@ -142,7 +142,7 @@ public class ConnectionHandler extends Observable {
             final byte[] readBuffer = new byte[readBufferSize];
             int readBytesCount = 0;
             int readIntoBuffer = 0;
-            long timeFromLastUpdate = System.currentTimeMillis();
+            long timeFromLastUpdate = 0;
             while (connected) {
                 /**
                  * We'll use the blocking api so we don't have to use
